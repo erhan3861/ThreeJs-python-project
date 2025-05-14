@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Three.js Robot Editor</title>
+  <style>
+    body { margin: 0; overflow: hidden; }
+    #editor {
+      position: fixed; bottom: 0; width: 100%; height: 150px;
+      background: #111; color: #0f0; font-family: monospace;
+      padding: 10px; box-sizing: border-box; z-index: 20;
+    }
+    #runButton {
+      position: fixed; right: 10px; bottom: 160px; z-index: 20;
+      padding: 5px 10px;
+    }
+    #crosshair {
+      position: fixed; top: 50%; left: 50%; width: 100px; height: 100px;
+      margin-left: -50px; margin-top: -50px;
+      border: 2px solid yellow; pointer-events: none; z-index: 10;
+    }
+    #detectedName {
+      position: fixed; top: 10px; left: 10px;
+      color: yellow; font-family: monospace; font-size: 18px; z-index: 10;
+    }
+    #cameraButtons {
+      position: fixed; top: 10px; right: 10px; z-index: 10;
+    }
+    button {
+      margin: 5px; padding: 5px 10px;
+    }
+  </style>
+</head>
+<body>
+  <div id="crosshair"></div>
+  <div id="detectedName"></div>
+  <div id="cameraButtons">
+    <button onclick="setCameraView('first')">1.Şahıs</button>
+    <button onclick="setCameraView('third')">3.Şahıs</button>
+    <button onclick="setCameraView('top')">Yukarıdan</button>
+  </div>
+  <textarea id="editor"># Örnek:
+move("up")
+move("left")</textarea>
+  <button id="runButton" onclick="runCode()">▶ Çalıştır</button>
+
+  <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+  <script>
+    let scene, camera, renderer, robot;
+    let cameraMode = 'first';
+
+    init();
+    animate();
+
+    function init() {
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x87CEEB);
+
+      camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+      renderer = new THREE.WebGLRenderer();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.body.appendChild(renderer.domElement);
+
+      const light = new THREE.DirectionalLight(0xffffff, 1);
+      light.position.set(1, 1, 1).normalize();
+      scene.add(light);
+      scene.add(new THREE.AmbientLight(0x404040));
+
+      const ground = new THREE.Mesh(
+        new THREE.PlaneGeometry(200, 200),
+        new THREE.MeshStandardMaterial({ color: 0x228B22 })
+      );
+      ground.rotation.x = -Math.PI / 2;
+      scene.add(ground);
+
+      const material = new THREE.MeshStandardMaterial({ color: 0x808080 });
+      const body = new THREE.Mesh(new THREE.BoxGeometry(1, 1.5, 0.5), material);
+      const head = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.6, 0.6), material);
+      head.position.y = 1.2;
+      robot = new THREE.Group();
+      robot.add(body);
+      robot.add(head);
+      robot.position.set(0, 0.75, 0);
+      scene.add(robot);
+
+      const box = new THREE.Mesh(
+        new THREE.BoxGeometry(1, 1, 1),
+        new THREE.MeshStandardMaterial({ color: 0xff0000 })
+      );
+      box.position.set(0, 0.5, -5);
+      box.name = "obstacle";
+      scene.add(box);
+
+      document.addEventListener('keydown', onKeyDown);
+    }
+
+    function setCameraView(mode) {
+      cameraMode = mode;
+    }
+
+    function updateCamera() {
+      const pos = robot.position.clone();
+      if (cameraMode === 'first') {
+        camera.position.copy(pos).add(new THREE.Vector3(0, 1.2, 0));
+        camera.lookAt(pos.clone().add(new THREE.Vector3(0, 1.2, -1)));
+      } else if (cameraMode === 'third') {
+        camera.position.copy(pos).add(new THREE.Vector3(0, 3, 5));
+        camera.lookAt(pos);
+      } else if (cameraMode === 'top') {
+        camera.position.copy(pos).add(new THREE.Vector3(0, 20, 0));
+        camera.lookAt(pos);
+      }
+    }
+
+    function move(direction) {
+      const speed = 0.5;
+      const map = {
+        up:    [0, 0, -1],
+        down:  [0, 0, 1],
+        left:  [-1, 0, 0],
+        right: [1, 0, 0],
+      };
+      const v = map[direction];
+      if (v) robot.position.add(new THREE.Vector3(...v).multiplyScalar(speed));
+    }
+
+    function detect_obstacle() {
+      const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(robot.quaternion);
+      const raycaster = new THREE.Raycaster(robot.position, forward);
+      const intersects = raycaster.intersectObjects(scene.children);
+      return intersects.length > 0 && intersects[0].distance < 2;
+    }
+
+    function runCommand(line) {
+      const match = line.match(/(\w+)\((.*?)\)/);
+      if (!match) return;
+      const [_, command, rawArg] = match;
+      const arg = rawArg.replace(/"/g, '').trim();
+      switch (command) {
+        case 'move': move(arg); break;
+        case 'detect_obstacle': alert("Engel: " + detect_obstacle()); break;
+        case 'setCameraView': setCameraView(arg); break;
+        default: console.log("Bilinmeyen komut:", command);
+      }
+    }
+
+    function runCode() {
+      const code = document.getElementById("editor").value;
+      code.split("\n").map(l => l.trim()).filter(Boolean).forEach(runCommand);
+    }
+
+    function onKeyDown(e) {
+      const keys = {
+        ArrowUp:    [0, 0, -1],
+        ArrowDown:  [0, 0, 1],
+        ArrowLeft:  [-1, 0, 0],
+        ArrowRight: [1, 0, 0]
+      };
+      const dir = keys[e.key];
+      if (dir) robot.position.add(new THREE.Vector3(...dir).multiplyScalar(0.2));
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+      updateCamera();
+      renderer.render(scene, camera);
+    }
+  </script>
+</body>
+</html>
